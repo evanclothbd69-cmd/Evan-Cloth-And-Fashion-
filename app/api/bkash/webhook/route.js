@@ -1,4 +1,4 @@
-// app/api/nagad/webhook/route.js - Nagad Payment Webhook
+// app/api/bkash/webhook/route.js - bKash Payment Webhook
 
 import { NextResponse } from "next/server";
 import Order from "@/models/Order";
@@ -12,9 +12,9 @@ export async function POST(req) {
     await dbConnect();
 
     const body = await req.json();
-    const { orderId, status, amount, transactionId, reference } = body;
+    const { transactionId, status, amount, paymentId } = body;
 
-    logger.info("Nagad webhook received", { transactionId, status });
+    logger.info("bKash webhook received", { transactionId, status });
 
     // Find order by transaction ID
     const order = await Order.findOne({ transactionId });
@@ -28,7 +28,7 @@ export async function POST(req) {
     }
 
     // Check payment status
-    if (status === "Success" || status === "Completed") {
+    if (status === "Completed" || status === "Success") {
       // Verify amount
       if (parseFloat(amount) !== order.total) {
         logger.error("Amount mismatch", { expected: order.total, received: amount });
@@ -41,11 +41,11 @@ export async function POST(req) {
       // Update order
       order.paymentStatus = "completed";
       order.status = "Confirmed";
-      order.nagadTransactionId = transactionId;
-      order.nagadReference = reference;
+      order.bkashTransactionId = transactionId;
+      order.bkashPaymentId = paymentId;
       await order.save();
 
-      logger.info("Nagad payment confirmed", { orderId: order._id });
+      logger.info("bKash payment confirmed", { orderId: order._id });
 
       // Send confirmation email
       const user = await User.findById(order.userId);
@@ -57,16 +57,12 @@ export async function POST(req) {
         message: "Payment confirmed",
         orderId: order._id,
       });
-    } else if (
-      status === "Failed" ||
-      status === "Cancelled" ||
-      status === "Rejected"
-    ) {
+    } else if (status === "Failed" || status === "Cancelled") {
       order.paymentStatus = "failed";
       order.status = "Failed";
       await order.save();
 
-      logger.warn("Nagad payment failed", { orderId: order._id, status });
+      logger.warn("bKash payment failed", { orderId: order._id, status });
 
       return NextResponse.json({
         message: "Payment failed",
@@ -78,7 +74,7 @@ export async function POST(req) {
       message: "Webhook processed",
     });
   } catch (error) {
-    logger.error("Nagad webhook error", { error: error.message });
+    logger.error("bKash webhook error", { error: error.message });
     return NextResponse.json(
       { error: "Webhook processing failed" },
       { status: 500 }

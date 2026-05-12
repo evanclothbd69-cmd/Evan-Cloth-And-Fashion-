@@ -1,4 +1,4 @@
-// app/api/nagad/webhook/route.js - Nagad Payment Webhook
+// app/api/sslcommerz/webhook/route.js - SSL Commerz Payment Webhook
 
 import { NextResponse } from "next/server";
 import Order from "@/models/Order";
@@ -12,15 +12,23 @@ export async function POST(req) {
     await dbConnect();
 
     const body = await req.json();
-    const { orderId, status, amount, transactionId, reference } = body;
+    const {
+      tran_id,
+      status,
+      amount,
+      currency,
+      val_id,
+      card_issuer,
+      card_brand,
+    } = body;
 
-    logger.info("Nagad webhook received", { transactionId, status });
+    logger.info("SSLCommerz webhook received", { tran_id, status });
 
     // Find order by transaction ID
-    const order = await Order.findOne({ transactionId });
+    const order = await Order.findOne({ transactionId: tran_id });
 
     if (!order) {
-      logger.error("Order not found for transaction", { transactionId });
+      logger.error("Order not found for transaction", { tran_id });
       return NextResponse.json(
         { error: "Order not found" },
         { status: 404 }
@@ -28,7 +36,7 @@ export async function POST(req) {
     }
 
     // Check payment status
-    if (status === "Success" || status === "Completed") {
+    if (status === "VALID" || status === "VALIDATED") {
       // Verify amount
       if (parseFloat(amount) !== order.total) {
         logger.error("Amount mismatch", { expected: order.total, received: amount });
@@ -41,13 +49,13 @@ export async function POST(req) {
       // Update order
       order.paymentStatus = "completed";
       order.status = "Confirmed";
-      order.nagadTransactionId = transactionId;
-      order.nagadReference = reference;
+      order.validationId = val_id;
+      order.cardBrand = card_brand;
       await order.save();
 
-      logger.info("Nagad payment confirmed", { orderId: order._id });
+      logger.info("Payment confirmed", { orderId: order._id });
 
-      // Send confirmation email
+      // Send payment confirmation email
       const user = await User.findById(order.userId);
       if (user) {
         await sendPaymentConfirmation(order, user.email, amount);
@@ -57,16 +65,12 @@ export async function POST(req) {
         message: "Payment confirmed",
         orderId: order._id,
       });
-    } else if (
-      status === "Failed" ||
-      status === "Cancelled" ||
-      status === "Rejected"
-    ) {
+    } else if (status === "FAILED" || status === "CANCELLED") {
       order.paymentStatus = "failed";
       order.status = "Failed";
       await order.save();
 
-      logger.warn("Nagad payment failed", { orderId: order._id, status });
+      logger.warn("SSLCommerz payment failed", { orderId: order._id, status });
 
       return NextResponse.json({
         message: "Payment failed",
@@ -78,7 +82,7 @@ export async function POST(req) {
       message: "Webhook processed",
     });
   } catch (error) {
-    logger.error("Nagad webhook error", { error: error.message });
+    logger.error("SSLCommerz webhook error", { error: error.message });
     return NextResponse.json(
       { error: "Webhook processing failed" },
       { status: 500 }
